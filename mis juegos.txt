@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego de Autos</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            background-color: #222;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        #gameContainer {
+            text-align: center;
+            background: #000;
+            padding: 15px;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 360px;
+        }
+        
+        #gameCanvas {
+            background: #111;
+            border: 2px solid #444;
+            width: 100%;
+            height: 480px;
+            display: block;
+            margin: 10px 0;
+        }
+        
+        #score {
+            color: #FFD700;
+            font-size: 20px;
+            margin: 10px 0;
+        }
+        
+        #startBtn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 30px;
+            width: 100%;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        #startBtn:hover {
+            background-color: #45a049;
+        }
+        
+        #soundBtn {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 20px;
+            margin: 5px 0;
+        }
+        
+        #touchControls {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+        }
+        
+        .touchBtn {
+            width: 70px;
+            height: 70px;
+            background-color: #555;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        
+        #instructions {
+            color: #ccc;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        
+        h1 {
+            color: #FF5252;
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <h1>🏎️ Juego de Autos 🏎️</h1>
+        <div id="score">Puntos: 0</div>
+        <canvas id="gameCanvas" width="320" height="480"></canvas>
+        <div id="instructions">
+            Evita los autos rojos<br>
+            Usa los botones o ← →
+        </div>
+        <button id="startBtn">▶️ INICIAR JUEGO</button>
+        <button id="soundBtn">🔊 Sonido ON</button>
+        <div id="touchControls">
+            <button class="touchBtn" id="leftBtn">←</button>
+            <button class="touchBtn" id="rightBtn">→</button>
+        </div>
+    </div>
+
+    <script>
+        // Elementos
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const startBtn = document.getElementById('startBtn');
+        const soundBtn = document.getElementById('soundBtn');
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+        
+        // Variables del juego
+        let gameRunning = false;
+        let score = 0;
+        let soundEnabled = true;
+        let player = {
+            x: 145,
+            y: 420,
+            width: 30,
+            height: 50,
+            speed: 6
+        };
+        
+        let obstacles = [];
+        let keys = {};
+        let touchLeft = false;
+        let touchRight = false;
+        let animationId;
+        
+        // Audio Context
+        let audioContext;
+        
+        // Crear sonidos
+        function initAudio() {
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                return true;
+            } catch (e) {
+                console.log("Audio no disponible");
+                return false;
+            }
+        }
+        
+        function playSound(frequency, duration, type = 'sine', volume = 0.1) {
+            if (!soundEnabled || !audioContext) return;
+            
+            try {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.type = type;
+                oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + duration);
+            } catch (e) {
+                console.log("No se pudo reproducir sonido");
+            }
+        }
+        
+        function playEngineSound() {
+            playSound(100 + (score/20), 0.1, 'sawtooth', 0.05);
+        }
+        
+        function playCrashSound() {
+            playSound(80, 0.5, 'square', 0.3);
+        }
+        
+        function playPointSound() {
+            playSound(400, 0.2, 'sine', 0.1);
+        }
+        
+        // Eventos de teclado
+        window.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+        });
+        
+        window.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+        
+        // Eventos para controles táctiles
+        leftBtn.addEventListener('mousedown', () => touchLeft = true);
+        leftBtn.addEventListener('mouseup', () => touchLeft = false);
+        leftBtn.addEventListener('mouseleave', () => touchLeft = false);
+        leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); touchLeft = true; });
+        leftBtn.addEventListener('touchend', () => touchLeft = false);
+        
+        rightBtn.addEventListener('mousedown', () => touchRight = true);
+        rightBtn.addEventListener('mouseup', () => touchRight = false);
+        rightBtn.addEventListener('mouseleave', () => touchRight = false);
+        rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); touchRight = true; });
+        rightBtn.addEventListener('touchend', () => touchRight = false);
+        
+        // Botones
+        startBtn.addEventListener('click', startGame);
+        soundBtn.addEventListener('click', toggleSound);
+        
+        // Toggle sonido
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            soundBtn.textContent = soundEnabled ? '🔊 Sonido ON' : '🔇 Sonido OFF';
+        }
+        
+        // Iniciar juego
+        function startGame() {
+            // Inicializar audio
+            if (soundEnabled) {
+                initAudio();
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
+            
+            gameRunning = true;
+            score = 0;
+            player.x = 145;
+            obstacles = [];
+            updateScore();
+            
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            
+            gameLoop();
+        }
+        
+        // Bucle del juego
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            update();
+            draw();
+            
+            animationId = requestAnimationFrame(gameLoop);
+        }
+        
+        // Actualizar juego
+        function update() {
+            // Mover jugador con teclado
+            let moved = false;
+            if ((keys['ArrowLeft'] || touchLeft) && player.x > 0) {
+                player.x -= player.speed;
+                moved = true;
+            }
+            if ((keys['ArrowRight'] || touchRight) && player.x < canvas.width - player.width) {
+                player.x += player.speed;
+                moved = true;
+            }
+            
+            // Reproducir sonido de motor si se mueve
+            if (moved && soundEnabled) {
+                playEngineSound();
+            }
+            
+            // Generar obstáculos
+            if (Math.random() < 0.03) {
+                obstacles.push({
+                    x: Math.random() * (canvas.width - 30),
+                    y: -50,
+                    width: 30,
+                    height: 50,
+                    speed: 3 + Math.random() * 4
+                });
+            }
+            
+            // Mover obstáculos
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].y += obstacles[i].speed;
+                
+                // Eliminar obstáculos fuera de pantalla
+                if (obstacles[i].y > canvas.height) {
+                    obstacles.splice(i, 1);
+                    score += 10;
+                    updateScore();
+                    if (soundEnabled) playPointSound();
+                    continue;
+                }
+                
+                // Detectar colisión
+                if (checkCollision(
+                    player.x, player.y, player.width, player.height,
+                    obstacles[i].x, obstacles[i].y, obstacles[i].width, obstacles[i].height
+                )) {
+                    if (soundEnabled) playCrashSound();
+                    gameOver();
+                    return;
+                }
+            }
+            
+            // Aumentar puntuación
+            score += 1;
+            updateScore();
+        }
+        
+        // Dibujar juego
+        function draw() {
+            // Limpiar canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Dibujar carretera
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Dibujar líneas de la carretera
+            ctx.fillStyle = '#FFD700';
+            for (let i = 0; i < canvas.height; i += 50) {
+                ctx.fillRect(canvas.width/2 - 2, i + (score % 30), 4, 30);
+            }
+            
+            // Dibujar jugador (auto azul mejorado)
+            drawCar(player.x, player.y, '#3498db');
+            
+            // Dibujar obstáculos (autos rojos)
+            for (let obstacle of obstacles) {
+                drawCar(obstacle.x, obstacle.y, '#e74c3c');
+            }
+        }
+        
+        // Dibujar auto con forma realista
+        function drawCar(x, y, color) {
+            // Cuerpo del auto (con forma más realista)
+            ctx.fillStyle = color;
+            
+            // Parte trasera
+            ctx.fillRect(x + 5, y, 20, 10);
+            
+            // Parte central
+            ctx.fillRect(x, y + 10, 30, 25);
+            
+            // Parte delantera
+            ctx.fillRect(x + 5, y + 35, 20, 15);
+            
+            // Ventanas
+            ctx.fillStyle = color === '#3498db' ? '#aed6f1' : '#f1948a';
+            ctx.fillRect(x + 3, y + 12, 24, 12);
+            ctx.fillRect(x + 3, y + 26, 24, 8);
+            
+            // Ruedas
+            ctx.fillStyle = '#2c3e50';
+            // Ruedas traseras
+            ctx.fillRect(x + 2, y + 15, 5, 8);
+            ctx.fillRect(x + 23, y + 15, 5, 8);
+            // Ruedas delanteras
+            ctx.fillRect(x + 2, y + 32, 5, 8);
+            ctx.fillRect(x + 23, y + 32, 5, 8);
+            
+            // Detalles
+            ctx.fillStyle = '#2c3e50';
+            // Parabrisas
+            ctx.beginPath();
+            ctx.moveTo(x + 5, y);
+            ctx.lineTo(x + 25, y);
+            ctx.lineTo(x + 20, y + 10);
+            ctx.lineTo(x + 10, y + 10);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Luces
+            ctx.fillStyle = color === '#3498db' ? '#aed6f1' : '#f1948a';
+            ctx.fillRect(x + 8, y + 40, 6, 3);
+            ctx.fillRect(x + 16, y + 40, 6, 3);
+        }
+        
+        // Detectar colisión
+        function checkCollision(x1, y1, w1, h1, x2, y2, w2, h2) {
+            return x1 < x2 + w2 &&
+                   x1 + w1 > x2 &&
+                   y1 < y2 + h2 &&
+                   y1 + h1 > y2;
+        }
+        
+        // Actualizar puntuación
+        function updateScore() {
+            scoreElement.textContent = `Puntos: ${score}`;
+        }
+        
+        // Fin del juego
+        function gameOver() {
+            gameRunning = false;
+            setTimeout(() => {
+                alert(`¡Juego terminado!\nPuntuación: ${score}`);
+                drawStartScreen();
+            }, 100);
+        }
+        
+        // Dibujar pantalla inicial
+        function drawStartScreen() {
+            // Limpiar canvas
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Dibujar líneas de la carretera
+            ctx.fillStyle = '#FFD700';
+            for (let i = 0; i < canvas.height; i += 50) {
+                ctx.fillRect(canvas.width/2 - 2, i, 4, 30);
+            }
+            
+            // Mensaje de inicio
+            ctx.fillStyle = 'white';
+            ctx.font = '18px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Presiona INICIAR JUEGO', canvas.width/2, canvas.height/2 - 20);
+            ctx.font = '16px Arial';
+            ctx.fillText('Usa los botones para mover', canvas.width/2, canvas.height/2 + 10);
+            
+            // Dibujar jugador de ejemplo
+            drawCar(145, canvas.height - 60, '#3498db');
+        }
+        
+        // Inicializar pantalla de inicio
+        drawStartScreen();
+    </script>
+</body>
+</html>
